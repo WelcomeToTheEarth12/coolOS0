@@ -1,0 +1,508 @@
+<title>coolOS0</title>
+<style>
+body, html {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    background-color: #000;
+    color: #FFFFFF;
+    font-family: monospace;
+    font-size: 16px;
+    overflow: hidden;
+}
+#terminal {
+    width: 100%;
+    height: 100%;
+    padding: 10px;
+    box-sizing: border-box;
+    overflow-y: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+#terminal::-webkit-scrollbar {
+    display: none;
+}
+#input-line {
+    display: flex;
+    align-items: center;
+}
+#prompt {
+    color: #FFFFFF;
+    margin-right: 5px;
+}
+#command-input {
+    flex-grow: 1;
+    background-color: transparent;
+    border: none;
+    color: #FFFFFF;
+    font-family: inherit;
+    font-size: inherit;
+    outline: none;
+}
+.output-line {
+    margin-bottom: 5px;
+    white-space: pre-wrap;
+    color: #FFFFFF;
+}
+.folder {
+    color: #FFFFFF;
+}
+.file {
+    color: #FFFFFF;
+}
+.system-file {
+    color: #FFFFFF;
+}
+.neofetch-container {
+    display: flex;
+    align-items: flex-start;
+}
+.neofetch-ascii {
+    margin-right: 20px;
+    white-space: pre;
+}
+.neofetch-info {
+    white-space: pre;
+}
+</style>
+</head>
+<body>
+<div id="terminal">
+    <div id="output"></div>
+    <div id="input-line">
+        <span id="prompt">user@coolOS0:~$</span>
+        <input type="text" id="command-input" autocomplete="off" autofocus>
+    </div>
+</div>
+
+<script>
+const output = document.getElementById('output');
+const commandInput = document.getElementById('command-input');
+const terminal = document.getElementById('terminal');
+const promptElement = document.getElementById('prompt');
+
+const fileSystem = {
+    '/': {
+        'system': {
+            'boot.s': 'System boot script',
+            'help.sh': 'Help command script',
+            'clear.sh': 'Clear screen script',
+            'echo.sh': 'Echo command script',
+            'date.sh': 'Date command script',
+            'write.sh': 'Write file script',
+            'ls.sh': 'List directory script',
+            'cat.sh': 'Display file content script',
+            'credits.sh': 'Credits command script',
+            'cowsay.sh': 'Cowsay command script',
+            'new.sh': 'Create new file script',
+            'newdir.sh': 'Create new directory script',
+            'neofetch.sh': 'System information script'
+        },
+        'user': {
+            'randomapps': {
+                'randomlinkgen.sh': 'Random link generator script'
+            }
+        }
+    }
+};
+
+let currentPath = '/';
+let commandHistory = [];
+let historyIndex = -1;
+const startTime = new Date();
+
+function updatePrompt() {
+    promptElement.textContent = `user@coolOS0:${currentPath}$`;
+}
+
+function countPackages() {
+    let count = 0;
+    function countRecursive(obj) {
+        for (let key in obj) {
+            if (typeof obj[key] === 'object') {
+                countRecursive(obj[key]);
+            } else {
+                count++;
+            }
+        }
+    }
+    countRecursive(fileSystem['/']);
+    return count;
+}
+
+function getUptime() {
+    const now = new Date();
+    const diff = now - startTime;
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+    
+    if (days > 0) {
+        return `${days} days, ${hours % 24} hours, ${minutes % 60} mins`;
+    } else if (hours > 0) {
+        return `${hours} hours, ${minutes % 60} mins`;
+    } else {
+        return `${minutes} mins`;
+    }
+}
+
+function getScreenResolution() {
+    return `${window.screen.width}x${window.screen.height}`;
+}
+
+const commands = {
+    help: () => `Available commands:
+help    - Display this help message
+clear   - Clear the terminal screen
+echo    - Display the provided text
+date    - Display the current date and time
+write   - Write content to a file
+ls      - List files in the current directory or specified path
+cd      - Change directory
+cat     - Display the content of a file
+pwd     - Print working directory
+boot.s  - Attempt to run boot manager
+credits - Display credits
+randomlinkgen.sh - Generate a random AI-imagined link
+cowsay  - Display a message with ASCII art cow
+new     - Create a new empty file
+read    - Read the contents of a file
+newdir  - Create a new directory
+neofetch - Display system information`,
+    clear: () => {
+        output.innerHTML = '';
+        return '';
+    },
+    echo: (args) => args.join(' '),
+    date: () => new Date().toString(),
+    write: (args) => {
+        if (args.length < 2) return 'Usage: write [filename] [content]';
+        const filename = args[0];
+        const content = args.slice(1).join(' ');
+        let currentDir = getCurrentDir();
+        if (filename.endsWith('.sh')) {
+            currentDir[filename] = 'Illegal operation.';
+            return 'Illegal operation.';
+        } else {
+            currentDir[filename] = content;
+            return `File '${filename}' written with content: ${content}`;
+        }
+    },
+    ls: (args) => {
+        let targetPath = currentPath;
+        if (args.length > 0) {
+            targetPath = resolvePath(args[0]);
+        }
+        let targetDir = getDir(targetPath);
+        if (targetDir === undefined) {
+            return `ls: cannot access '${args[0]}': No such file or directory`;
+        }
+        let result = '';
+        for (let item in targetDir) {
+            if (typeof targetDir[item] === 'object') {
+                result += `${item}/\n`;
+            } else {
+                result += `${item}\n`;
+            }
+        }
+        return result.trim();
+    },
+    cd: (args) => {
+        if (args.length === 0 || args[0] === '~') {
+            currentPath = '/';
+            updatePrompt();
+            return '';
+        }
+        if (args[0] === '\\' || args[0] === '..') {
+            if (currentPath !== '/') {
+                currentPath = currentPath.split('/').slice(0, -1).join('/') || '/';
+                updatePrompt();
+                return '';
+            } else {
+                return 'cd: Already at root directory';
+            }
+        }
+        const newPath = resolvePath(args[0]);
+        if (pathExists(newPath)) {
+            currentPath = newPath;
+            updatePrompt();
+            return '';
+        } else {
+            return `cd: ${args[0]}: No such directory`;
+        }
+    },
+    cat: (args) => {
+        if (args.length === 0) return 'Usage: cat [filename]';
+        const filename = args[0];
+        let currentDir = getCurrentDir();
+        if (currentDir[filename]) {
+            if (filename.endsWith('.sh')) {
+                return 'Illegal operation.';
+            }
+            return currentDir[filename];
+        } else {
+            return `cat: ${filename}: No such file`;
+        }
+    },
+    pwd: () => currentPath,
+    'boot.s': () => 'Cannot run boot manager',
+    credits: () => 'Credits: Made by coolwaffle0 with a help of AI. Hope you enjoy this thing.',
+    'randomlinkgen.sh': async () => {
+        return 'Illegal operation.';
+    },
+    cowsay: (args) => {
+        if (args.length === 0) return 'Usage: cowsay [message]';
+        const message = args.join(' ');
+        const maxLength = Math.max(...message.split('\n').map(line => line.length));
+        const border = '_'.repeat(maxLength + 2);
+        const lines = message.split('\n');
+        const formattedLines = lines.map(line => {
+            const padding = ' '.repeat(maxLength - line.length);
+            return `| ${line}${padding} |`;
+        }).join('\n');
+        const cow = `
+        \\   ^__^
+         \\  (oo)\\_______
+            (__)\\       )\\/\\
+                ||----w |
+                ||     ||`;
+        return `
+ ${border}
+${formattedLines}
+ ${'-'.repeat(maxLength + 2)}
+${cow}`;
+    },
+    new: (args) => {
+        if (args.length === 0) return 'Usage: new [filename]';
+        const filename = args[0];
+        let currentDir = getCurrentDir();
+        if (currentDir[filename]) {
+            return `new: cannot create file '${filename}': File exists`;
+        } else {
+            if (filename.endsWith('.sh')) {
+                currentDir[filename] = 'Illegal operation.';
+                return 'Illegal operation.';
+            } else {
+                currentDir[filename] = '';
+                return `File '${filename}' created successfully`;
+            }
+        }
+    },
+    read: (args) => {
+        if (args.length === 0) return 'Usage: read [filename]';
+        const filename = args[0];
+        let currentDir = getCurrentDir();
+        if (currentDir.hasOwnProperty(filename)) {
+            if (filename.endsWith('.sh')) {
+                return 'Illegal operation.';
+            } else if (currentDir[filename] === '') {
+                return 'File is empty!';
+            } else {
+                return currentDir[filename];
+            }
+        } else {
+            return `read: ${filename}: No such file`;
+        }
+    },
+    newdir: (args) => {
+        if (args.length === 0) return 'Usage: newdir [directory_name]';
+        const dirName = args[0];
+        let currentDir = getCurrentDir();
+        if (currentDir[dirName]) {
+            return `newdir: cannot create directory '${dirName}': Directory exists`;
+        } else {
+            currentDir[dirName] = {};
+            return `Directory '${dirName}' created successfully`;
+        }
+    },
+    neofetch: () => {
+        const asciiArt = `
+   _______________
+  /               \\
+ /                 \\
+/___________________\\
+|                   |
+|       cool        |
+|                   |
+|                   |
+|                   |
+|                   |
+|                   |
+|___________________|
+`;
+
+        const systemInfo = `
+coolOS0
+-------
+OS: coolOS0
+Host: coolOS0 VM
+Kernel: 5.0.0
+Uptime: ${getUptime()}
+Packages: ${countPackages()}
+Shell: coolsh 1.0.0
+Resolution: ${getScreenResolution()}
+DE: CLI
+WM: N/A
+Terminal: coolTerm
+CPU: Virtual CPU @ 1.20GHz
+GPU: Virtual GPU
+Memory: ${Math.floor(Math.random() * 100) + 1} MiB / 512 MiB
+`;
+
+        return `<div class="neofetch-container">
+    <pre class="neofetch-ascii">${asciiArt}</pre>
+    <pre class="neofetch-info">${systemInfo}</pre>
+</div>`;
+    }
+};
+
+function getCurrentDir() {
+    return getDir(currentPath);
+}
+
+function getDir(path) {
+    return path.split('/').filter(Boolean).reduce((acc, curr) => acc && acc[curr], fileSystem['/']);
+}
+
+function resolvePath(path) {
+    if (path.startsWith('/')) return path;
+    const currentPathParts = currentPath.split('/').filter(Boolean);
+    const newPathParts = path.split('/').filter(Boolean);
+    
+    for (let part of newPathParts) {
+        if (part === '..') {
+            currentPathParts.pop();
+        } else if (part !== '.') {
+            currentPathParts.push(part);
+        }
+    }
+    
+    return '/' + currentPathParts.join('/');
+}
+
+function pathExists(path) {
+    return getDir(path) !== undefined;
+}
+
+function levenshteinDistance(a, b) {
+    const matrix = [];
+
+    for (let i = 0; i <= b.length; i++) {
+        matrix[i] = [i];
+    }
+
+    for (let j = 0; j <= a.length; j++) {
+        matrix[0][j] = j;
+    }
+
+    for (let i = 1; i <= b.length; i++) {
+        for (let j = 1; j <= a.length; j++) {
+            if (b.charAt(i - 1) === a.charAt(j - 1)) {
+                matrix[i][j] = matrix[i - 1][j - 1];
+            } else {
+                matrix[i][j] = Math.min(
+                    matrix[i - 1][j - 1] + 1,
+                    matrix[i][j - 1] + 1,
+                    matrix[i - 1][j] + 1
+                );
+            }
+        }
+    }
+
+    return matrix[b.length][a.length];
+}
+
+function findSimilarCommand(cmd) {
+    const availableCommands = Object.keys(commands);
+    let closestMatch = '';
+    let minDistance = Infinity;
+
+    for (const command of availableCommands) {
+        const distance = levenshteinDistance(cmd, command);
+        if (distance < minDistance) {
+            minDistance = distance;
+            closestMatch = command;
+        }
+    }
+
+    // Only suggest if the distance is less than half the length of the input command
+    if (minDistance <= cmd.length / 2) {
+        return closestMatch;
+    }
+    return null;
+}
+
+async function processCommand(command) {
+    const [cmd, ...args] = command.trim().split(' ');
+    
+    if (cmd.endsWith('.sh') || cmd.endsWith('.s')) {
+        return 'Illegal operation.';
+    }
+    
+    if (commands[cmd]) {
+        return await commands[cmd](args);
+    } else {
+        const similarCommand = findSimilarCommand(cmd);
+        if (similarCommand) {
+            return `Command not found: ${cmd}. Did you mean "${similarCommand}"?\nType 'help' for available commands.`;
+        } else {
+            return `Command not found: ${cmd}. Type 'help' for available commands.`;
+        }
+    }
+}
+
+function addOutputLine(text) {
+    const line = document.createElement('div');
+    line.className = 'output-line';
+    line.innerHTML = text;
+    output.appendChild(line);
+    scrollToBottom();
+}
+
+function scrollToBottom() {
+    terminal.scrollTop = terminal.scrollHeight;
+}
+
+commandInput.addEventListener('keydown', async (e) => {
+    if (e.key === 'Enter') {
+        const command = commandInput.value;
+        addOutputLine(`<span>user@coolOS0:${currentPath}$</span> ${command}`);
+        const result = await processCommand(command);
+        if (result) addOutputLine(result);
+        commandHistory.push(command);
+        historyIndex = commandHistory.length;
+        commandInput.value = '';
+        scrollToBottom();
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (historyIndex > 0) {
+            historyIndex--;
+            commandInput.value = commandHistory[historyIndex];
+        }
+    } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (historyIndex < commandHistory.length - 1) {
+            historyIndex++;
+            commandInput.value = commandHistory[historyIndex];
+        } else if (historyIndex === commandHistory.length - 1) {
+            historyIndex = commandHistory.length;
+            commandInput.value = '';
+        }
+    }
+});
+
+commandInput.addEventListener('input', scrollToBottom);
+
+addOutputLine('Welcome to coolOS0! Type "help" for available commands.');
+scrollToBottom();
+
+function focusInput() {
+    commandInput.focus();
+}
+
+window.addEventListener('load', focusInput);
+document.addEventListener('click', focusInput);
+
+updatePrompt();
+</script>
+</body></html>
